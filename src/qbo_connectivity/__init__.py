@@ -1,0 +1,1 @@
+"""QBO connectivity monitoring domain."""

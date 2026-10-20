@@ -1,0 +1,42 @@
+name: QBO Connectivity Airflow CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install development dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check src tests dags
+
+      - name: Unit tests
+        run: python -m pytest
+
+      - name: Build Airflow image
+        run: docker build --tag qbo-connectivity-airflow:${{ github.sha }} .
+
+      - name: Validate DAG imports
+        run: >-
+          docker run --rm
+          qbo-connectivity-airflow:${{ github.sha }}
+          bash -c "airflow db migrate >/dev/null && airflow dags list-import-errors --output json"

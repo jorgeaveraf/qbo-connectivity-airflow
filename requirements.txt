@@ -1,0 +1,2 @@
+# Runtime dependencies added by this project on top of the official Airflow image.
+httpx==0.28.1
