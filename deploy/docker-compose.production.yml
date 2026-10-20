@@ -52,12 +52,27 @@ services:
       - airflow-postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  airflow-permissions:
+    image: ${AIRFLOW_IMAGE:?AIRFLOW_IMAGE must reference an immutable image}
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        chown -R 50000:0 /opt/airflow/config /opt/airflow/logs
+        && chmod 0775 /opt/airflow/config /opt/airflow/logs
+    volumes:
+      - airflow-logs:/opt/airflow/logs
+      - airflow-config:/opt/airflow/config
+    restart: "no"
+
   airflow-init:
     <<: *airflow-common
     command: ["db", "migrate"]
     depends_on:
       postgres:
         condition: service_healthy
+      airflow-permissions:
+        condition: service_completed_successfully
     restart: "no"
 
   airflow-api-server:
