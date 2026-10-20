@@ -49,8 +49,9 @@ compose() {
 start_release() {
   local image="$1"
   compose "$image" up -d postgres
+  compose "$image" run --rm airflow-permissions
   compose "$image" run --rm airflow-init
-  compose "$image" up -d --remove-orphans \
+  compose "$image" up -d --no-deps --remove-orphans \
     airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer
 }
 

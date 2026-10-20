@@ -2,6 +2,8 @@
 
 The production stack is intentionally separate from local Docker Compose. It runs an immutable application image, dedicated PostgreSQL metadata database, persistent metadata/log/config volumes, and binds the Airflow UI/API only to VPS loopback port `8080`.
 
+Before migrations and runtime startup, a one-shot root container limits its work to assigning the persistent log/config volumes to Airflow UID `50000`. Runtime components continue to run unprivileged.
+
 The DAG has `schedule=None` and new DAGs are paused by default. Installing the stack does not enable periodic monitoring.
 
 ## One-time VPS preparation
