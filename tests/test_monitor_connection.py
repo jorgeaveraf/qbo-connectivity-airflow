@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+import httpx
+import pytest
+
 from qbo_connectivity.domain.models import ConnectionTarget
+from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
 from qbo_connectivity.services.monitor_connection import monitor_connection
 
 CLIENT_ID = UUID("070b2e37-aa28-4911-b2b2-e493678d38f5")
@@ -51,24 +55,53 @@ def test_successful_company_info_publishes_true() -> None:
     assert automation.published == [update]
 
 
-def test_exhausted_company_info_attempts_publish_false() -> None:
+def test_exhausted_company_info_attempts_do_not_publish_status() -> None:
     qbo = FakeQboGateway(failures=3)
     automation = FakeAutomationGateway()
 
-    update = monitor_connection(
-        target=ConnectionTarget(client_id=CLIENT_ID, environment="sandbox"),
-        qbo_gateway=qbo,
-        automation_gateway=automation,
-        max_attempts=3,
-        retry_delay_seconds=0,
-        correlation_id=CORRELATION_ID,
-        now=lambda: CHECKED_AT,
-        sleeper=lambda _seconds: None,
-    )
+    with pytest.raises(RuntimeError, match="simulated QBO failure"):
+        monitor_connection(
+            target=ConnectionTarget(client_id=CLIENT_ID, environment="sandbox"),
+            qbo_gateway=qbo,
+            automation_gateway=automation,
+            max_attempts=3,
+            retry_delay_seconds=0,
+            correlation_id=CORRELATION_ID,
+            now=lambda: CHECKED_AT,
+            sleeper=lambda _seconds: None,
+        )
 
-    assert update.is_connected is False
     assert qbo.calls == 3
-    assert automation.published == [update]
+    assert automation.published == []
+
+
+def test_qbo_gateway_502_does_not_publish_disconnected() -> None:
+    automation = FakeAutomationGateway()
+    calls = 0
+
+    def unavailable(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(502, json={"detail": "QuickBooks API error"})
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(unavailable),
+    ) as qbo:
+        with pytest.raises(httpx.HTTPStatusError):
+            monitor_connection(
+                target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
+                qbo_gateway=qbo,
+                automation_gateway=automation,
+                max_attempts=2,
+                retry_delay_seconds=0,
+                sleeper=lambda _seconds: None,
+            )
+
+    assert calls == 2
+    assert automation.published == []
 
 
 def test_publication_failure_is_not_reported_as_disconnected() -> None:
