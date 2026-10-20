@@ -5,6 +5,7 @@ The production stack is intentionally separate from local Docker Compose. It run
 Before migrations and runtime startup, a one-shot root container limits its work to assigning the persistent log/config volumes to Airflow UID `50000`. Runtime components continue to run unprivileged.
 
 The DAG has `schedule=None` and new DAGs are paused by default. Installing the stack does not enable periodic monitoring.
+Manual DAG runs require `client_id` and `environment` (`prod` or `sandbox`) in the run configuration. The selected pair must belong to an active client. A run without an explicit scope fails before publishing any status.
 
 ## One-time VPS preparation
 

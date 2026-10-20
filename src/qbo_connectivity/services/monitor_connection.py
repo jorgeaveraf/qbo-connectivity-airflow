@@ -20,8 +20,6 @@ def monitor_connection(
     sleeper: Callable[[float], None] = sleep,
 ) -> ConnectionStatusUpdate:
     request_id = correlation_id or uuid4()
-    is_connected = False
-
     for attempt in range(1, max_attempts + 1):
         try:
             qbo_gateway.check_company_info(
@@ -29,17 +27,17 @@ def monitor_connection(
                 environment=target.environment,
                 correlation_id=request_id,
             )
-            is_connected = True
             break
         except Exception:
-            if attempt < max_attempts:
-                sleeper(retry_delay_seconds)
+            if attempt == max_attempts:
+                raise
+            sleeper(retry_delay_seconds)
 
     clock = now or (lambda: datetime.now(UTC))
     update = ConnectionStatusUpdate(
         client_id=target.client_id,
         environment=target.environment,
-        is_connected=is_connected,
+        is_connected=True,
         checked_at=clock(),
         correlation_id=request_id,
     )

@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from airflow.sdk import dag, task
+from airflow.sdk import dag, get_current_context, task
 
 from qbo_connectivity.domain.models import ConnectionTarget
 from qbo_connectivity.integrations.automation_gateway.client import AutomationGatewayClient
 from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
 from qbo_connectivity.services.monitor_connection import monitor_connection
+from qbo_connectivity.services.target_selection import require_manual_target, select_active_target
 from qbo_connectivity.settings import ServiceSettings
 
 
@@ -20,11 +21,12 @@ from qbo_connectivity.settings import ServiceSettings
     tags=["qbo", "connectivity"],
     default_args={"retries": 2, "retry_delay": timedelta(seconds=30)},
     max_active_runs=1,
-    description="Monitor QBO connectivity and publish the latest boolean status.",
+    description="Check one selected QBO connection and publish a successful check.",
 )
 def qbo_connection_monitor():
     @task
     def list_targets() -> list[dict[str, str]]:
+        requested = require_manual_target(get_current_context()["dag_run"].conf)
         settings = ServiceSettings.from_environment()
         settings.validate_runtime()
         with QboGatewayClient(
@@ -32,7 +34,7 @@ def qbo_connection_monitor():
             api_key=settings.qbo_gateway_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         ) as qbo_gateway:
-            return [target.to_dict() for target in qbo_gateway.list_connection_targets()]
+            return select_active_target(qbo_gateway.list_connection_targets(), requested)
 
     @task
     def check_and_publish(target_data: dict[str, str]) -> dict[str, str | bool]:
