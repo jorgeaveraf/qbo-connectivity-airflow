@@ -23,6 +23,9 @@ x-airflow-common: &airflow-common
   user: "50000:0"
   extra_hosts:
     - "host.docker.internal:host-gateway"
+  networks:
+    - default
+    - automation-gateway
   volumes:
     - airflow-logs:/opt/airflow/logs
     - airflow-config:/opt/airflow/config
@@ -85,3 +88,8 @@ volumes:
   airflow-postgres-data:
   airflow-logs:
   airflow-config:
+
+networks:
+  automation-gateway:
+    external: true
+    name: automation-gateway_default
