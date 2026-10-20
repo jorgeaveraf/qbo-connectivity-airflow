@@ -11,7 +11,8 @@ This repository currently provides the local monitoring implementation:
 - dedicated PostgreSQL 17 metadata database;
 - API server, scheduler, DAG processor, and triggerer;
 - a paused, manually triggered connectivity DAG;
-- local unit tests and CI validation.
+- local unit tests and CI validation;
+- a separate, manually triggered production delivery path.
 
 The DAG lists active QBO clients and environments, dynamically maps one task per connection, checks CompanyInfo with bounded retries, and publishes a strict boolean result to Automation Gateway. No production credentials are included and the schedule remains disabled.
 
@@ -51,6 +52,10 @@ Airflow -> Automation Gateway connection status
 ```
 
 Airflow owns scheduling and retries. It does not access the QBO application database directly.
+
+## Production boundary
+
+Production deployment uses the files under `deploy/`. The Airflow UI/API binds only to VPS loopback port `8080`, has no Nginx route, and the monitoring DAG remains manually triggered with no schedule. Application releases use immutable commit-SHA images; production delivery can run only manually from `main` after the one-time VPS preparation documented in `deploy/README.md`.
 
 ## Connectivity rule
 

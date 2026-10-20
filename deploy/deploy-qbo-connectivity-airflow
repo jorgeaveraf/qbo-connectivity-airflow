@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly APP_DIR="/root/automations/qbo-connectivity-airflow"
+readonly COMPOSE_FILE="$APP_DIR/docker-compose.production.yml"
+readonly ENV_FILE="$APP_DIR/.env"
+readonly RELEASE_FILE="$APP_DIR/.release.env"
+readonly LOCK_FILE="/run/lock/qbo-connectivity-airflow-deploy.lock"
+readonly IMAGE_REPOSITORY="ghcr.io/jorgeaveraf/qbo-connectivity-airflow"
+
+if [[ $# -ne 1 || ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Usage: $0 <40-character-git-sha>" >&2
+  exit 64
+fi
+
+readonly CANDIDATE_IMAGE="$IMAGE_REPOSITORY:$1"
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || { echo "Another deployment is already running" >&2; exit 75; }
+
+test -f "$COMPOSE_FILE" || { echo "Missing $COMPOSE_FILE" >&2; exit 66; }
+test -f "$ENV_FILE" || { echo "Missing $ENV_FILE" >&2; exit 66; }
+
+required_variables=(
+  AIRFLOW_POSTGRES_DB AIRFLOW_POSTGRES_USER AIRFLOW_POSTGRES_PASSWORD
+  AIRFLOW_FERNET_KEY AIRFLOW_API_JWT_SECRET AIRFLOW_API_SECRET_KEY
+  QBO_GATEWAY_BASE_URL QBO_GATEWAY_API_KEY
+  AUTOMATION_GATEWAY_BASE_URL AUTOMATION_GATEWAY_API_KEY
+)
+for variable in "${required_variables[@]}"; do
+  grep -Eq "^${variable}=.+$" "$ENV_FILE" || {
+    echo "Missing required value: $variable" >&2
+    exit 78
+  }
+done
+
+previous_image=""
+if [[ -f "$RELEASE_FILE" ]]; then
+  previous_image="$(sed -n 's/^AIRFLOW_IMAGE=//p' "$RELEASE_FILE")"
+fi
+
+compose() {
+  AIRFLOW_IMAGE="$1" docker compose \
+    --env-file "$ENV_FILE" \
+    --file "$COMPOSE_FILE" \
+    "${@:2}"
+}
+
+start_release() {
+  local image="$1"
+  compose "$image" up -d postgres
+  compose "$image" run --rm airflow-init
+  compose "$image" up -d --remove-orphans \
+    airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer
+}
+
+wait_for_health() {
+  for _ in $(seq 1 30); do
+    if curl --fail --silent --show-error \
+      http://127.0.0.1:8080/api/v2/monitor/health >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback() {
+  echo "Candidate failed health validation" >&2
+  if [[ -n "$previous_image" ]]; then
+    echo "Restoring previous application image" >&2
+    start_release "$previous_image"
+    wait_for_health || echo "Rollback health validation failed" >&2
+  else
+    compose "$CANDIDATE_IMAGE" down --remove-orphans || true
+  fi
+}
+trap rollback ERR
+
+echo "Pulling $CANDIDATE_IMAGE"
+docker pull "$CANDIDATE_IMAGE"
+start_release "$CANDIDATE_IMAGE"
+wait_for_health
+
+printf 'AIRFLOW_IMAGE=%s\n' "$CANDIDATE_IMAGE" > "$RELEASE_FILE.new"
+chmod 600 "$RELEASE_FILE.new"
+mv "$RELEASE_FILE.new" "$RELEASE_FILE"
+
+trap - ERR
+echo "QBO Connectivity Airflow deployed successfully"
+echo "image=$CANDIDATE_IMAGE"
+echo "api=http://127.0.0.1:8080"
