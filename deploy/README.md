@@ -17,7 +17,8 @@ The DAG has `schedule=None` and new DAGs are paused by default. Installing the s
 
 - No Nginx route is created.
 - Port `8080` is reachable only from the VPS itself or through an SSH tunnel.
-- Airflow reaches QBO Gateway on host port `8000` and Automation Gateway on host port `8002` through `host.docker.internal`.
+- Airflow reaches QBO Gateway on host port `8000` through `host.docker.internal`.
+- Airflow joins the existing `automation-gateway_default` Docker network and reaches Automation Gateway privately as `http://automation-gateway:8000`; port `8002` remains bound to VPS loopback only.
 - Airflow owns its metadata PostgreSQL volume; it never connects directly to the QBO application database.
 
 ## Rollback boundary
