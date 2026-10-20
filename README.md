@@ -14,7 +14,7 @@ This repository currently provides the local monitoring implementation:
 - local unit tests and CI validation;
 - a separate, manually triggered production delivery path.
 
-The DAG lists active QBO clients and environments, dynamically maps one task per connection, checks CompanyInfo with bounded retries, and publishes a strict boolean result to Automation Gateway. No production credentials are included and the schedule remains disabled.
+The DAG requires an explicit `client_id` and `environment` in each manual run, checks that the requested connection belongs to an active client, then checks CompanyInfo with bounded retries. No production credentials are included and the schedule remains disabled.
 
 ## Local startup
 
@@ -60,10 +60,12 @@ Production deployment uses the files under `deploy/`. The Airflow UI/API binds o
 ## Connectivity rule
 
 ```text
-CompanyInfo succeeds within the configured attempts -> is_connected=true
-All configured attempts fail                         -> is_connected=false
+CompanyInfo succeeds within the configured attempts -> publish is_connected=true
+All configured attempts fail                         -> fail the task; do not change stored status
 ```
 
-Failure to publish the result is not converted into a connectivity result. The mapped Airflow task fails and uses Airflow task retries.
+QBO Gateway already records a confirmed OAuth `invalid_grant` as disconnected. Its CompanyInfo endpoint currently reports other QBO errors as a generic HTTP 502, so Airflow cannot safely interpret a failed request as a confirmed disconnection. Failure to check or publish the result fails the Airflow task without publishing a false status. The task uses Airflow retries.
 
-`tests/support/qbo_mock_app.py` is a local-only CompanyInfo mock used to exercise connected and disconnected DAG runs without contacting Intuit.
+For a manual run, provide `{"client_id": "<UUID>", "environment": "sandbox"}` (or `prod`) as the DAG run configuration. Missing or extra fields fail the run before any status is published. Broad scheduled runs require a separate reviewed change.
+
+`tests/support/qbo_mock_app.py` is a local-only CompanyInfo mock used to exercise successful and failed checks without contacting Intuit.
