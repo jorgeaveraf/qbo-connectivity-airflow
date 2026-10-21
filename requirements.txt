@@ -1,2 +1,4 @@
 # Runtime dependencies added by this project on top of the official Airflow image.
 httpx==0.28.1
+apache-airflow==3.3.2
+apache-airflow-providers-fab==3.9.0
