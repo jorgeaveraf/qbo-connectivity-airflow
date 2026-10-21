@@ -10,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXECUTION_API_URL = "http://airflow-api-server:8080/execution/"
+PRODUCTION_EXECUTION_API_URL = "http://airflow-api-server:8080/airflow/execution/"
 AIRFLOW_SERVICES = (
     "airflow-api-server",
     "airflow-scheduler",
@@ -49,5 +50,12 @@ def test_airflow_services_use_internal_execution_api(production: bool) -> None:
     services = json.loads(result.stdout)["services"]
     for service_name in AIRFLOW_SERVICES:
         assert services[service_name]["environment"]["AIRFLOW__CORE__EXECUTION_API_SERVER_URL"] == (
-            EXECUTION_API_URL
+            PRODUCTION_EXECUTION_API_URL if production else EXECUTION_API_URL
         )
+        if production:
+            assert services[service_name]["environment"]["AIRFLOW__API__BASE_URL"] == (
+                "https://qbo.headquarters.co/airflow"
+            )
+            assert services[service_name]["environment"]["AIRFLOW__CORE__AUTH_MANAGER"] == (
+                "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
+            )

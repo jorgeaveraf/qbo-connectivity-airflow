@@ -60,7 +60,7 @@ Airflow owns scheduling. It does not access the QBO application database directl
 
 ## Production boundary
 
-Production deployment uses the files under `deploy/`. The Airflow UI/API binds only to VPS loopback port `8080`, has no Nginx route, and the monitoring DAG remains manually triggered with no schedule. Application releases use immutable commit-SHA images; production delivery can run only manually from `main` after the one-time VPS preparation documented in `deploy/README.md`.
+Production deployment uses the files under `deploy/`. The Airflow UI/API remains bound to VPS loopback port `8080`; Nginx exposes it at `https://qbo.headquarters.co/airflow/` with FAB authentication. The monitoring DAG remains manually triggered with no schedule. Application releases use immutable commit-SHA images; production delivery can run only manually from `main` after the one-time VPS preparation documented in `deploy/README.md`.
 
 ## Connectivity rule
 
