@@ -21,6 +21,7 @@ def publish_status(
         raise HTTPException(status_code=401, detail="Invalid local test API key")
     if client_id != CLIENT_ID or payload.get("environment") != "sandbox":
         raise HTTPException(status_code=404, detail="Unknown local test target")
-    if payload.get("is_connected") is not True:
-        raise HTTPException(status_code=400, detail="Expected a successful local check")
+    if not isinstance(payload.get("is_connected"), bool):
+        raise HTTPException(status_code=400, detail="Expected a boolean status")
+    print(f"mock_status_published={payload['is_connected']}", flush=True)
     return {"status": "accepted"}

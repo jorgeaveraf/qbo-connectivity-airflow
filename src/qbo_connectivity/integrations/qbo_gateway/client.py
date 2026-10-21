@@ -59,10 +59,28 @@ class QboGatewayClient:
         client_id: UUID,
         environment: Environment,
         correlation_id: UUID,
-    ) -> None:
+    ) -> bool:
         response = self._client.get(
             f"/qbo/{client_id}/companyinfo",
             params={"environment": environment},
             headers={"X-Request-Id": str(correlation_id)},
         )
+        if response.status_code == 200:
+            return True
+
+        if response.status_code == 401:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict):
+                details = payload.get("details")
+                if (
+                    isinstance(details, dict)
+                    and details.get("provider") == "intuit"
+                    and details.get("oauth_error") == "invalid_grant"
+                ):
+                    return False
+
         response.raise_for_status()
+        raise ValueError(f"Unexpected CompanyInfo response status: {response.status_code}")
