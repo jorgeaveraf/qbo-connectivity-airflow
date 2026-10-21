@@ -3,6 +3,7 @@
 from os import environ
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 CLIENT_ID = "070b2e37-aa28-4911-b2b2-e493678d38f5"
@@ -35,15 +36,24 @@ def list_clients(
     ]
 
 
-@app.get("/qbo/{client_id}/companyinfo")
+@app.get("/qbo/{client_id}/companyinfo", response_model=None)
 def company_info(
     client_id: str,
     environment: str,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, str]:
+) -> dict[str, str] | JSONResponse:
     require_local_key(x_api_key)
     if client_id != CLIENT_ID or environment != "sandbox":
         raise HTTPException(status_code=404, detail="Unknown local test target")
-    if environ.get("MOCK_COMPANYINFO_CONNECTED", "true").lower() != "true":
+    result = environ.get("MOCK_COMPANYINFO_RESULT", "connected")
+    if result == "invalid_grant":
+        return JSONResponse(
+            status_code=401,
+            content={
+                "code": 401,
+                "details": {"provider": "intuit", "oauth_error": "invalid_grant"},
+            },
+        )
+    if result != "connected":
         raise HTTPException(status_code=503, detail="Simulated QBO connectivity failure")
     return {"CompanyName": "Local Integration Test"}

@@ -37,6 +37,48 @@ def test_qbo_client_builds_targets_from_active_client_environments() -> None:
     assert [target.environment for target in targets] == ["prod", "sandbox"]
 
 
+def test_qbo_client_classifies_companyinfo_200_as_connected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/qbo/{CLIENT_ID}/companyinfo"
+        assert request.url.params["environment"] == "prod"
+        return httpx.Response(200, json={"CompanyInfo": {"CompanyName": "Local"}})
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.check_company_info(
+            client_id=CLIENT_ID,
+            environment="prod",
+            correlation_id=UUID("7ac383c5-7d11-488f-8ba8-11bd2c02023d"),
+        ) is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(401, text="not-json"),
+        httpx.Response(401, json={"details": ["invalid_grant"]}),
+        httpx.Response(204),
+    ],
+)
+def test_qbo_client_rejects_unrecognized_companyinfo_response(response: httpx.Response) -> None:
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(lambda _request: response),
+    ) as client:
+        with pytest.raises((httpx.HTTPStatusError, ValueError)):
+            client.check_company_info(
+                client_id=CLIENT_ID,
+                environment="prod",
+                correlation_id=UUID("7ac383c5-7d11-488f-8ba8-11bd2c02023d"),
+            )
+
+
 def test_automation_client_publishes_boolean_payload() -> None:
     captured = {}
 

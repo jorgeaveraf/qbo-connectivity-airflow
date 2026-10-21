@@ -1,6 +1,8 @@
 services:
   qbo-mock:
     image: qbo-connectivity-airflow:local
+    environment:
+      MOCK_COMPANYINFO_RESULT: ${MOCK_COMPANYINFO_RESULT:-connected}
     command:
       - python
       - -m
