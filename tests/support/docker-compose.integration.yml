@@ -1,0 +1,42 @@
+services:
+  qbo-mock:
+    image: qbo-connectivity-airflow:local
+    command:
+      - python
+      - -m
+      - uvicorn
+      - qbo_mock_app:app
+      - --app-dir
+      - /opt/airflow/mock
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    volumes:
+      - ./tests/support:/opt/airflow/mock:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  automation-mock:
+    image: qbo-connectivity-airflow:local
+    command:
+      - python
+      - -m
+      - uvicorn
+      - automation_mock_app:app
+      - --app-dir
+      - /opt/airflow/mock
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    volumes:
+      - ./tests/support:/opt/airflow/mock:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

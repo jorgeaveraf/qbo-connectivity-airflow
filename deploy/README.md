@@ -16,6 +16,12 @@ Manual DAG runs require `client_id` and `environment` (`prod` or `sandbox`) in t
 5. Permit the existing `deploy` SSH user to run only that script without a password.
 6. Configure the GitHub `production` environment secrets used by the manual workflow.
 
+The workflow deploys an image but does not update the server-installed Compose file.
+When Compose changes, install the reviewed file separately and validate it on the VPS
+before dispatching the deployment workflow. Airflow workers need
+`AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/execution/`
+to reach the API server on the private Compose network.
+
 ## Runtime boundaries
 
 - No Nginx route is created.
