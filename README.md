@@ -44,6 +44,11 @@ python -m ruff check src tests dags
 docker compose config --quiet
 ```
 
+The Compose regression test checks that every Airflow runtime service points to the
+internal Execution API. For an end-to-end local run, use the isolated mock services in
+`tests/support/docker-compose.integration.yml`; they replace both external gateways
+and never publish to QBO or the production database.
+
 ## Planned data flow
 
 ```text
