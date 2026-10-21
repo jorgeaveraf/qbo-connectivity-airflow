@@ -41,38 +41,20 @@ def test_runtime_validation_reports_missing_integrations() -> None:
         automation_gateway_base_url="",
         automation_gateway_api_key="",
         request_timeout_seconds=30,
-        qbo_check_max_attempts=3,
-        qbo_check_retry_delay_seconds=5,
     )
 
     with pytest.raises(ValueError, match="Missing required service settings"):
         settings.validate_runtime()
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("request_timeout_seconds", 0, "REQUEST_TIMEOUT_SECONDS"),
-        ("qbo_check_max_attempts", 0, "QBO_CHECK_MAX_ATTEMPTS"),
-        ("qbo_check_retry_delay_seconds", -1, "QBO_CHECK_RETRY_DELAY_SECONDS"),
-    ],
-)
-def test_runtime_validation_rejects_invalid_numeric_values(
-    field: str,
-    value: float,
-    message: str,
-) -> None:
-    values = {
-        "qbo_gateway_base_url": "http://qbo.local",
-        "qbo_gateway_api_key": "qbo-key",
-        "automation_gateway_base_url": "http://automation.local",
-        "automation_gateway_api_key": "automation-key",
-        "request_timeout_seconds": 30,
-        "qbo_check_max_attempts": 3,
-        "qbo_check_retry_delay_seconds": 5,
-    }
-    values[field] = value
-    settings = ServiceSettings(**values)
+def test_runtime_validation_rejects_invalid_timeout() -> None:
+    settings = ServiceSettings(
+        qbo_gateway_base_url="http://qbo.local",
+        qbo_gateway_api_key="qbo-key",
+        automation_gateway_base_url="http://automation.local",
+        automation_gateway_api_key="automation-key",
+        request_timeout_seconds=0,
+    )
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="REQUEST_TIMEOUT_SECONDS"):
         settings.validate_runtime()

@@ -14,14 +14,16 @@ CHECKED_AT = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
 
 
 class FakeQboGateway:
-    def __init__(self, failures: int) -> None:
-        self.failures = failures
+    def __init__(self, result: bool = True, error: Exception | None = None) -> None:
+        self.result = result
+        self.error = error
         self.calls = 0
 
-    def check_company_info(self, **_kwargs) -> None:
+    def check_company_info(self, **_kwargs) -> bool:
         self.calls += 1
-        if self.calls <= self.failures:
-            raise RuntimeError("simulated QBO failure")
+        if self.error:
+            raise self.error
+        return self.result
 
 
 class FakeAutomationGateway:
@@ -35,28 +37,26 @@ class FakeAutomationGateway:
         self.published.append(update)
 
 
-def test_successful_company_info_publishes_true() -> None:
-    qbo = FakeQboGateway(failures=0)
+@pytest.mark.parametrize("is_connected", [True, False])
+def test_classified_company_info_publishes_status(is_connected: bool) -> None:
+    qbo = FakeQboGateway(result=is_connected)
     automation = FakeAutomationGateway()
 
     update = monitor_connection(
         target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
         qbo_gateway=qbo,
         automation_gateway=automation,
-        max_attempts=3,
-        retry_delay_seconds=0,
         correlation_id=CORRELATION_ID,
         now=lambda: CHECKED_AT,
-        sleeper=lambda _seconds: None,
     )
 
-    assert update.is_connected is True
+    assert update.is_connected is is_connected
     assert qbo.calls == 1
     assert automation.published == [update]
 
 
-def test_exhausted_company_info_attempts_do_not_publish_status() -> None:
-    qbo = FakeQboGateway(failures=3)
+def test_failed_company_info_does_not_publish_status_or_retry() -> None:
+    qbo = FakeQboGateway(error=RuntimeError("simulated QBO failure"))
     automation = FakeAutomationGateway()
 
     with pytest.raises(RuntimeError, match="simulated QBO failure"):
@@ -64,62 +64,123 @@ def test_exhausted_company_info_attempts_do_not_publish_status() -> None:
             target=ConnectionTarget(client_id=CLIENT_ID, environment="sandbox"),
             qbo_gateway=qbo,
             automation_gateway=automation,
-            max_attempts=3,
-            retry_delay_seconds=0,
-            correlation_id=CORRELATION_ID,
-            now=lambda: CHECKED_AT,
-            sleeper=lambda _seconds: None,
         )
 
-    assert qbo.calls == 3
+    assert qbo.calls == 1
     assert automation.published == []
 
 
-def test_qbo_gateway_502_does_not_publish_disconnected() -> None:
+def test_invalid_grant_publishes_disconnected_once() -> None:
     automation = FakeAutomationGateway()
     calls = 0
 
-    def unavailable(_request: httpx.Request) -> httpx.Response:
+    def invalid_grant(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(502, json={"detail": "QuickBooks API error"})
+        return httpx.Response(
+            401,
+            json={
+                "code": 401,
+                "details": {"provider": "intuit", "oauth_error": "invalid_grant"},
+            },
+        )
 
     with QboGatewayClient(
         base_url="http://qbo.local",
         api_key="local-key",
         timeout_seconds=1,
-        transport=httpx.MockTransport(unavailable),
+        transport=httpx.MockTransport(invalid_grant),
+    ) as qbo:
+        update = monitor_connection(
+            target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
+            qbo_gateway=qbo,
+            automation_gateway=automation,
+            correlation_id=CORRELATION_ID,
+            now=lambda: CHECKED_AT,
+        )
+
+    assert calls == 1
+    assert update.is_connected is False
+    assert automation.published == [update]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "payload"),
+    [
+        (400, {"detail": "Invalid request"}),
+        (401, {"details": {"provider": "intuit", "oauth_error": "other_error"}}),
+        (401, {"details": {"provider": "other", "oauth_error": "invalid_grant"}}),
+        (401, {"detail": "Unauthorized"}),
+        (404, {"message": "Credential not found"}),
+        (429, {"detail": "Rate limited"}),
+        (502, {"detail": "QuickBooks API error"}),
+        (503, {"detail": "Unavailable"}),
+    ],
+)
+def test_unclassified_http_error_does_not_publish_or_retry(
+    status_code: int, payload: dict[str, object]
+) -> None:
+    automation = FakeAutomationGateway()
+    calls = 0
+
+    def failed(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status_code, json=payload)
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(failed),
     ) as qbo:
         with pytest.raises(httpx.HTTPStatusError):
             monitor_connection(
                 target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
                 qbo_gateway=qbo,
                 automation_gateway=automation,
-                max_attempts=2,
-                retry_delay_seconds=0,
-                sleeper=lambda _seconds: None,
             )
 
-    assert calls == 2
+    assert calls == 1
     assert automation.published == []
 
 
-def test_publication_failure_is_not_reported_as_disconnected() -> None:
-    qbo = FakeQboGateway(failures=0)
+def test_timeout_does_not_publish_or_retry() -> None:
+    automation = FakeAutomationGateway()
+    calls = 0
+
+    def timed_out(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("simulated timeout")
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(timed_out),
+    ) as qbo:
+        with pytest.raises(httpx.ReadTimeout):
+            monitor_connection(
+                target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
+                qbo_gateway=qbo,
+                automation_gateway=automation,
+            )
+
+    assert calls == 1
+    assert automation.published == []
+
+
+def test_publication_failure_is_not_reported_as_success() -> None:
+    qbo = FakeQboGateway(result=False)
     automation = FakeAutomationGateway(error=RuntimeError("publisher unavailable"))
 
-    try:
+    with pytest.raises(RuntimeError, match="publisher unavailable"):
         monitor_connection(
             target=ConnectionTarget(client_id=CLIENT_ID, environment="prod"),
             qbo_gateway=qbo,
             automation_gateway=automation,
-            max_attempts=3,
-            retry_delay_seconds=0,
-            correlation_id=CORRELATION_ID,
-            now=lambda: CHECKED_AT,
-            sleeper=lambda _seconds: None,
         )
-    except RuntimeError as exc:
-        assert str(exc) == "publisher unavailable"
-    else:
-        raise AssertionError("publication failure must propagate to Airflow")
+
+    assert qbo.calls == 1
+    assert automation.published == []

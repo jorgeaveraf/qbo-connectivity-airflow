@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import UUID
 
 from airflow.sdk import dag, get_current_context, task
@@ -19,7 +19,7 @@ from qbo_connectivity.settings import ServiceSettings
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["qbo", "connectivity"],
-    default_args={"retries": 2, "retry_delay": timedelta(seconds=30)},
+    default_args={"retries": 0},
     max_active_runs=1,
     description="Check one selected QBO connection and publish a successful check.",
 )
@@ -60,8 +60,6 @@ def qbo_connection_monitor():
                 target=target,
                 qbo_gateway=qbo_gateway,
                 automation_gateway=automation_gateway,
-                max_attempts=settings.qbo_check_max_attempts,
-                retry_delay_seconds=settings.qbo_check_retry_delay_seconds,
             )
         return {
             "client_id": str(update.client_id),

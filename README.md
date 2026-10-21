@@ -14,7 +14,7 @@ This repository currently provides the local monitoring implementation:
 - local unit tests and CI validation;
 - a separate, manually triggered production delivery path.
 
-The DAG requires an explicit `client_id` and `environment` in each manual run, checks that the requested connection belongs to an active client, then checks CompanyInfo with bounded retries. No production credentials are included and the schedule remains disabled.
+The DAG requires an explicit `client_id` and `environment` in each manual run, checks that the requested connection belongs to an active client, then checks CompanyInfo once through QBO Gateway. No production credentials are included and the schedule remains disabled.
 
 ## Local startup
 
@@ -56,7 +56,7 @@ Airflow -> QBO Gateway CompanyInfo
 Airflow -> Automation Gateway connection status
 ```
 
-Airflow owns scheduling and retries. It does not access the QBO application database directly.
+Airflow owns scheduling. It does not access the QBO application database directly.
 
 ## Production boundary
 
@@ -65,11 +65,23 @@ Production deployment uses the files under `deploy/`. The Airflow UI/API binds o
 ## Connectivity rule
 
 ```text
-CompanyInfo succeeds within the configured attempts -> publish is_connected=true
-All configured attempts fail                         -> fail the task; do not change stored status
+CompanyInfo returns 200                               -> publish is_connected=true
+QBO Gateway returns 401 with Intuit invalid_grant     -> publish is_connected=false
+Other responses, timeouts, or publication failures    -> fail the task; do not change stored status
 ```
 
-QBO Gateway already records a confirmed OAuth `invalid_grant` as disconnected. Its CompanyInfo endpoint currently reports other QBO errors as a generic HTTP 502, so Airflow cannot safely interpret a failed request as a confirmed disconnection. Failure to check or publish the result fails the Airflow task without publishing a false status. The task uses Airflow retries.
+QBO Gateway already records a confirmed OAuth `invalid_grant` as disconnected. Airflow
+publishes the same result through Automation Gateway so the monitor run verifies that
+publication succeeded. QBO Gateway currently maps upstream QBO API errors, including
+upstream HTTP 400, to generic HTTP 502. Airflow therefore cannot safely classify those
+responses as disconnected. Missing credentials (HTTP 404) are not a disconnected
+credential and do not publish a status. QBO Gateway retains its internal retry policy
+for upstream 429 and 5xx responses; Airflow makes one CompanyInfo request per task and
+does not add another retry layer. Legacy `QBO_CHECK_MAX_ATTEMPTS` and
+`QBO_CHECK_RETRY_DELAY_SECONDS` Compose variables are ignored by the application and
+can be removed in a later Compose update. Unclassified errors cause no Airflow status
+write; a confirmed `invalid_grant` can still be stored by QBO Gateway before Airflow
+attempts publication.
 
 For a manual run, provide `{"client_id": "<UUID>", "environment": "sandbox"}` (or `prod`) as the DAG run configuration. Missing or extra fields fail the run before any status is published. Broad scheduled runs require a separate reviewed change.
 
