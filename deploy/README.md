@@ -1,48 +1,13 @@
-# Production deployment
+# Airflow production cutover
 
-The production stack is intentionally separate from local Docker Compose. It runs an immutable application image, dedicated PostgreSQL metadata database, persistent metadata/log/config volumes, and binds the Airflow UI/API only to VPS loopback port `8080`. Nginx exposes the UI at `https://qbo.headquarters.co/airflow/` after authentication is provisioned.
+Deploy Gateway v2 first and confirm its API, Redis, and worker are healthy. Airflow stays on its existing PostgreSQL volume and loopback port 8080. The new release joins `automation-gateway-v2_default` and sends jobs to `http://automation-gateway-v2:8000`. QBO Gateway and its database are outside this rollout.
 
-Before migrations and runtime startup, a one-shot root container limits its work to assigning the persistent log/config volumes to Airflow UID `50000`. Runtime components continue to run unprivileged.
+## One-time preparation before merging to main
 
-The DAG has `schedule=None` and new DAGs are paused by default. Installing the stack does not enable periodic monitoring.
-Manual DAG runs require `client_id` and `environment` (`prod` or `sandbox`) in the run configuration. The selected pair must belong to an active client. A run without an explicit scope fails before publishing any status.
+The VPS already has the root-owned Airflow directory, `deploy` user, Docker Compose, and sudo permission for `/usr/local/sbin/deploy-qbo-connectivity-airflow`. Keep these. Install the reviewed new script at that existing path.
 
-## One-time VPS preparation
+Keep `/root/automations/qbo-connectivity-airflow/.env` root-owned and mode 600. Add the new notification ledger, router key, and Slack destination values from `deploy/qbo-connectivity-airflow.env.example`; set `AUTOMATION_GATEWAY_BASE_URL=http://automation-gateway-v2:8000`. Check the private Gateway v2 network exists. The GitHub `production` environment needs the existing SSH secrets; remove manual environment reviewers if main must deploy automatically. Require the CI job on protected main.
 
-1. Create `/root/automations/qbo-connectivity-airflow` owned by root with mode `0700`.
-2. Install `docker-compose.production.yml` there as root mode `0644`.
-3. Create its private `.env` as root mode `0600`; never commit or print its values.
-4. Install `deploy-qbo-connectivity-airflow` at `/usr/local/sbin/` as root mode `0755`.
-5. Permit the existing `deploy` SSH user to run only that script without a password.
-6. Configure the GitHub `production` environment secrets used by the manual workflow.
+`develop` and pull requests run CI only. A successful push to `main` builds and publishes the immutable Airflow image, then deploys it. Actions passes its short-lived GHCR token over SSH stdin; the script stores Docker authentication only in a temporary root-owned directory. The script checks Gateway v2, extracts the production Compose from the image, backs up the Airflow metadata database, verifies the dump, preserves the first release as `docker-compose.legacy.yml` and `.release.legacy.env`, runs the pinned Airflow 3.3.2 migration, recreates runtime services, checks API and process health, and records the image. A failed candidate restores the previous Compose and image. The script never deletes the metadata volume. Database migrations are forward-only: inspect the backup in `backups/` before any version or schema upgrade and do not treat image rollback as database rollback.
 
-The workflow deploys an image but does not update the server-installed Compose file.
-When Compose changes, install the reviewed file separately and validate it on the VPS
-before dispatching the deployment workflow. Airflow workers need
-`AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/`
-to reach the API server on the private Compose network. The production image includes
-the FAB auth provider; the production Compose selects FAB instead of Simple Auth Manager.
-Back up the Airflow metadata database before changing the auth manager because its
-tables require migrations. Provision one Admin account privately before enabling the
-Nginx route. Never include its password in a shell command line or committed file.
-
-For the initial FAB/path-prefix cutover, stage the new image with the existing private
-Compose configuration first. Back up the metadata database and installed Compose file,
-then install the prefixed Compose and restart the Airflow services. Verify the prefixed
-loopback health endpoint, an authenticated login, and a manual task run before installing
-the Nginx snippets and adding their include to the HTTPS server block. Install the new
-deploy script only after the prefixed health endpoint is healthy. The rate-limit snippet
-belongs in Nginx's `http` context; the locations snippet belongs only in the HTTPS
-`qbo.headquarters.co` server block. Validate with `nginx -t` before reload.
-
-## Runtime boundaries
-
-- The dedicated Nginx `/airflow/` route proxies to the VPS loopback port `8080`.
-- Port `8080` remains reachable only from the VPS itself or through an SSH tunnel.
-- Airflow reaches QBO Gateway on host port `8000` through `host.docker.internal`.
-- Airflow joins the existing `automation-gateway_default` Docker network and reaches Automation Gateway privately as `http://automation-gateway:8000`; port `8002` remains bound to VPS loopback only.
-- Airflow owns its metadata PostgreSQL volume; it never connects directly to the QBO application database.
-
-## Rollback boundary
-
-The script records the last healthy application image and restores it when candidate health validation fails. It does not revert Compose configuration or database migrations. Keep a copy of the previously installed Compose file; restore it separately if the prefixed deployment fails. Database migrations are forward-only; take and verify a metadata database backup before adding FAB or upgrading Airflow. The current release fixes Airflow at `3.3.2`.
+The DAG remains manually triggered and paused by default. Validate a scoped manual run and the Gateway queue/worker result after the first Airflow release, then retire the old Gateway in a separate change.

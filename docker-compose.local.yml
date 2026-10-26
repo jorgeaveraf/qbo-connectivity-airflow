@@ -1,0 +1,24 @@
+# Isolated local E2E companion to ingestion-gateway's worker sandbox Compose.
+# Start with: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+x-local-integrations: &local-integrations
+  QBO_GATEWAY_BASE_URL: http://host.docker.internal:18091
+  QBO_GATEWAY_API_KEY: local-sandbox-test-only
+  AUTOMATION_GATEWAY_BASE_URL: http://host.docker.internal:18092
+  AUTOMATION_GATEWAY_API_KEY: local-sandbox-test-only
+  NOTIFICATION_LEDGER_URL: http://host.docker.internal:18091/ledger
+  NOTIFICATION_ROUTER_API_KEY: local-sandbox-test-only
+  QBO_DISCONNECT_SLACK_DESTINATION_ID: D0B3LSR4C1Y
+
+services:
+  airflow-init:
+    environment: *local-integrations
+  airflow-api-server:
+    environment: *local-integrations
+    ports: !override
+      - "127.0.0.1:8081:8080"
+  airflow-scheduler:
+    environment: *local-integrations
+  airflow-dag-processor:
+    environment: *local-integrations
+  airflow-triggerer:
+    environment: *local-integrations

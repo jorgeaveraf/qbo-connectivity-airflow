@@ -29,9 +29,20 @@ class AutomationGatewayClient:
         self._client.close()
 
     def publish_connection_status(self, update: ConnectionStatusUpdate) -> None:
-        response = self._client.put(
-            f"/v1/connections/{update.client_id}/status",
-            json=update.payload(),
+        response = self._client.post(
+            "/v1/jobs",
+            json={
+                "event_id": str(update.event_id or update.correlation_id),
+                "kind": "qbo.connection_checked.v1",
+                "payload": {
+                    "client_id": str(update.client_id),
+                    **update.payload(),
+                    "notification": {
+                        "candidate": update.notification_candidate,
+                        "observed_previous_connected": update.observed_previous_connected,
+                    },
+                },
+            },
             headers={"X-Request-Id": str(update.correlation_id)},
         )
         response.raise_for_status()

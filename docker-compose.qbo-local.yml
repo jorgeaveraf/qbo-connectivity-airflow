@@ -1,0 +1,17 @@
+# Overlay for read-only monitoring against the local QBO Gateway.
+# Use with --env-file ../qbo-gateway/.env and both base and local Compose files.
+x-qbo-local: &qbo-local
+  QBO_GATEWAY_BASE_URL: http://host.docker.internal:8000
+  QBO_GATEWAY_API_KEY: ${API_KEY:?Load the local QBO Gateway .env with --env-file}
+
+services:
+  airflow-init:
+    environment: *qbo-local
+  airflow-api-server:
+    environment: *qbo-local
+  airflow-scheduler:
+    environment: *qbo-local
+  airflow-dag-processor:
+    environment: *qbo-local
+  airflow-triggerer:
+    environment: *qbo-local

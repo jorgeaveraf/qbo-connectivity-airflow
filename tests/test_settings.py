@@ -9,6 +9,9 @@ def test_settings_default_to_disconnected_local_integrations(monkeypatch) -> Non
         "QBO_GATEWAY_API_KEY",
         "AUTOMATION_GATEWAY_BASE_URL",
         "AUTOMATION_GATEWAY_API_KEY",
+        "NOTIFICATION_LEDGER_URL",
+        "NOTIFICATION_ROUTER_API_KEY",
+        "QBO_DISCONNECT_SLACK_DESTINATION_ID",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -25,6 +28,12 @@ def test_settings_read_local_environment(monkeypatch) -> None:
     monkeypatch.setenv("QBO_GATEWAY_API_KEY", "qbo-local-key")
     monkeypatch.setenv("AUTOMATION_GATEWAY_BASE_URL", "http://automation.local")
     monkeypatch.setenv("AUTOMATION_GATEWAY_API_KEY", "automation-local-key")
+    monkeypatch.setenv(
+        "NOTIFICATION_LEDGER_URL",
+        "http://ledger.local/webhook/automation/notification-ledger/last-sent/v1",
+    )
+    monkeypatch.setenv("NOTIFICATION_ROUTER_API_KEY", "router-webhook-key")
+    monkeypatch.setenv("QBO_DISCONNECT_SLACK_DESTINATION_ID", "D0B3LSR4C1Y")
 
     settings = ServiceSettings.from_environment()
 
@@ -32,6 +41,10 @@ def test_settings_read_local_environment(monkeypatch) -> None:
     assert settings.qbo_gateway_api_key == "qbo-local-key"
     assert settings.automation_gateway_base_url == "http://automation.local"
     assert settings.automation_gateway_api_key == "automation-local-key"
+    assert settings.notification_ledger_url == (
+        "http://ledger.local/webhook/automation/notification-ledger/last-sent/v1"
+    )
+    assert settings.notification_slack_destination_id == "D0B3LSR4C1Y"
 
 
 def test_runtime_validation_reports_missing_integrations() -> None:
@@ -40,6 +53,9 @@ def test_runtime_validation_reports_missing_integrations() -> None:
         qbo_gateway_api_key="",
         automation_gateway_base_url="",
         automation_gateway_api_key="",
+        notification_ledger_url="",
+        notification_router_api_key="",
+        notification_slack_destination_id="",
         request_timeout_seconds=30,
     )
 
@@ -53,6 +69,11 @@ def test_runtime_validation_rejects_invalid_timeout() -> None:
         qbo_gateway_api_key="qbo-key",
         automation_gateway_base_url="http://automation.local",
         automation_gateway_api_key="automation-key",
+        notification_ledger_url=(
+            "http://ledger.local/webhook/automation/notification-ledger/last-sent/v1"
+        ),
+        notification_router_api_key="router-webhook-key",
+        notification_slack_destination_id="D0B3LSR4C1Y",
         request_timeout_seconds=0,
     )
 
