@@ -36,6 +36,27 @@ def list_clients(
     ]
 
 
+@app.get("/clients/{client_id}")
+def client_detail(
+    client_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, object]:
+    require_local_key(x_api_key)
+    if client_id != CLIENT_ID:
+        raise HTTPException(status_code=404, detail="Unknown local test target")
+    return {
+        "id": CLIENT_ID,
+        "status": "active",
+        "credentials": [
+            {
+                "environment": "sandbox",
+                "is_connected": environ.get("MOCK_PREVIOUS_CONNECTED", "true") == "true",
+                "connection_checked_at": "2026-10-20T12:00:00Z",
+            }
+        ],
+    }
+
+
 @app.get("/qbo/{client_id}/companyinfo", response_model=None)
 def company_info(
     client_id: str,

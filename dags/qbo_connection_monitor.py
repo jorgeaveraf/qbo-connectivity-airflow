@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from airflow.sdk import dag, get_current_context, task
 
 from qbo_connectivity.domain.models import ConnectionTarget
 from qbo_connectivity.integrations.automation_gateway.client import AutomationGatewayClient
+from qbo_connectivity.integrations.notification_ledger import NotificationLedgerClient
 from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
 from qbo_connectivity.services.monitor_connection import monitor_connection
 from qbo_connectivity.services.target_selection import require_manual_target, select_active_target
@@ -44,6 +45,11 @@ def qbo_connection_monitor():
             client_id=UUID(target_data["client_id"]),
             environment=target_data["environment"],
         )
+        run_id = get_current_context()["dag_run"].run_id
+        event_id = uuid5(
+            NAMESPACE_URL,
+            f"qbo.connection_checked.v1:{run_id}:{target.client_id}:{target.environment}",
+        )
         with (
             QboGatewayClient(
                 base_url=settings.qbo_gateway_base_url,
@@ -55,11 +61,19 @@ def qbo_connection_monitor():
                 api_key=settings.automation_gateway_api_key,
                 timeout_seconds=settings.request_timeout_seconds,
             ) as automation_gateway,
+            NotificationLedgerClient(
+                url=settings.notification_ledger_url,
+                api_key=settings.notification_router_api_key,
+                timeout_seconds=settings.request_timeout_seconds,
+            ) as notification_ledger,
         ):
             update = monitor_connection(
                 target=target,
                 qbo_gateway=qbo_gateway,
                 automation_gateway=automation_gateway,
+                notification_ledger=notification_ledger,
+                notification_recipient=settings.notification_slack_destination_id,
+                event_id=event_id,
             )
         return {
             "client_id": str(update.client_id),

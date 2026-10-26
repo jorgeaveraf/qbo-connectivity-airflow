@@ -42,3 +42,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  notification-ledger-mock:
+    image: qbo-connectivity-airflow:local
+    command:
+      - python
+      - -m
+      - uvicorn
+      - notification_ledger_mock_app:app
+      - --app-dir
+      - /opt/airflow/mock
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    volumes:
+      - ./tests/support:/opt/airflow/mock:ro
+    environment:
+      MOCK_LAST_NOTIFIED_AT: ${MOCK_LAST_NOTIFIED_AT:-}
+      MOCK_CLIENT_ID: ${MOCK_CLIENT_ID:-477751f2-1142-4283-a3c0-387f8aa45fbd}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

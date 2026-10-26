@@ -4,20 +4,23 @@ x-airflow-common: &airflow-common
     - ${AIRFLOW_ENV_FILE:-.env}
   environment: &airflow-environment
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/airflow/execution/
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?AIRFLOW_FERNET_KEY is required}
-    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_SIMPLE_AUTH_MANAGER_USERS:-admin:admin}
-    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/simple_auth_manager_passwords.json
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:?AIRFLOW_POSTGRES_USER is required}:${AIRFLOW_POSTGRES_PASSWORD:?AIRFLOW_POSTGRES_PASSWORD is required}@postgres/${AIRFLOW_POSTGRES_DB:?AIRFLOW_POSTGRES_DB is required}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_API_JWT_SECRET:?AIRFLOW_API_JWT_SECRET is required}
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?AIRFLOW_API_SECRET_KEY is required}
+    AIRFLOW__API__BASE_URL: https://qbo.headquarters.co/airflow
     PYTHONPATH: /opt/airflow/src
     QBO_GATEWAY_BASE_URL: ${QBO_GATEWAY_BASE_URL:?QBO_GATEWAY_BASE_URL is required}
     QBO_GATEWAY_API_KEY: ${QBO_GATEWAY_API_KEY:?QBO_GATEWAY_API_KEY is required}
     AUTOMATION_GATEWAY_BASE_URL: ${AUTOMATION_GATEWAY_BASE_URL:?AUTOMATION_GATEWAY_BASE_URL is required}
     AUTOMATION_GATEWAY_API_KEY: ${AUTOMATION_GATEWAY_API_KEY:?AUTOMATION_GATEWAY_API_KEY is required}
+    NOTIFICATION_LEDGER_URL: ${NOTIFICATION_LEDGER_URL:?NOTIFICATION_LEDGER_URL is required}
+    NOTIFICATION_ROUTER_API_KEY: ${NOTIFICATION_ROUTER_API_KEY:?NOTIFICATION_ROUTER_API_KEY is required}
+    QBO_DISCONNECT_SLACK_DESTINATION_ID: ${QBO_DISCONNECT_SLACK_DESTINATION_ID:?QBO_DISCONNECT_SLACK_DESTINATION_ID is required}
     REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-30}
     QBO_CHECK_MAX_ATTEMPTS: ${QBO_CHECK_MAX_ATTEMPTS:-3}
     QBO_CHECK_RETRY_DELAY_SECONDS: ${QBO_CHECK_RETRY_DELAY_SECONDS:-5}
@@ -82,7 +85,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/airflow/api/v2/monitor/health"]
       interval: 20s
       timeout: 10s
       retries: 6
@@ -108,4 +111,4 @@ volumes:
 networks:
   automation-gateway:
     external: true
-    name: automation-gateway_default
+    name: automation-gateway-v2_default
