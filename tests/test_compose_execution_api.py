@@ -31,9 +31,7 @@ def test_airflow_services_use_internal_execution_api(production: bool) -> None:
             AIRFLOW_IMAGE="ghcr.io/example/qbo-connectivity-airflow:" + "0" * 40,
             AIRFLOW_ENV_FILE="qbo-connectivity-airflow.env.example",
         )
-        command.extend(
-            ["--env-file", "deploy/qbo-connectivity-airflow.env.example"]
-        )
+        command.extend(["--env-file", "deploy/qbo-connectivity-airflow.env.example"])
         compose_file = "deploy/docker-compose.production.yml"
     else:
         compose_file = "docker-compose.yml"

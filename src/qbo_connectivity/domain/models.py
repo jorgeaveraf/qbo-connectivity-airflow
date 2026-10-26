@@ -26,10 +26,16 @@ class ConnectionStatusUpdate:
     checked_at: datetime
     correlation_id: UUID
     provider: str = "qbo"
+    event_id: UUID | None = None
+    notification_candidate: bool | None = None
+    observed_previous_connected: bool | None = None
 
     def payload(self) -> dict[str, str | bool]:
         data = asdict(self)
         data.pop("client_id")
+        data.pop("event_id")
+        data.pop("notification_candidate")
+        data.pop("observed_previous_connected")
         data["checked_at"] = self.checked_at.isoformat()
         data["correlation_id"] = str(self.correlation_id)
         return data

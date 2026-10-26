@@ -6,5 +6,6 @@ RUN pip install --no-cache-dir -r /opt/airflow/requirements.txt \
 
 COPY --chown=airflow:root dags /opt/airflow/dags
 COPY --chown=airflow:root src /opt/airflow/src
+COPY --chown=airflow:root deploy/docker-compose.production.yml /opt/airflow/deploy/docker-compose.production.yml
 
 ENV PYTHONPATH=/opt/airflow/src

@@ -1,93 +1,119 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly APP_DIR="/root/automations/qbo-connectivity-airflow"
+readonly APP_DIR=/root/automations/qbo-connectivity-airflow
 readonly COMPOSE_FILE="$APP_DIR/docker-compose.production.yml"
 readonly ENV_FILE="$APP_DIR/.env"
 readonly RELEASE_FILE="$APP_DIR/.release.env"
-readonly LOCK_FILE="/run/lock/qbo-connectivity-airflow-deploy.lock"
-readonly IMAGE_REPOSITORY="ghcr.io/jorgeaveraf/qbo-connectivity-airflow"
+readonly LEGACY_COMPOSE_FILE="$APP_DIR/docker-compose.legacy.yml"
+readonly LEGACY_RELEASE_FILE="$APP_DIR/.release.legacy.env"
+readonly LOCK_FILE=/run/lock/qbo-connectivity-airflow-deploy.lock
+readonly IMAGE_REPO=ghcr.io/jorgeaveraf/qbo-connectivity-airflow
 
-if [[ $# -ne 1 || ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Usage: $0 <40-character-git-sha>" >&2
-  exit 64
-fi
-
-readonly CANDIDATE_IMAGE="$IMAGE_REPOSITORY:$1"
+[[ $# -eq 1 && "$1" =~ ^[0-9a-f]{40}$ ]] || { echo "Usage: $0 <40-character-lowercase-git-sha>" >&2; exit 64; }
+for binary in docker curl flock; do command -v "$binary" >/dev/null || exit 69; done
+docker compose version >/dev/null
+[[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -f "$RELEASE_FILE" ]] || { echo "Missing Airflow env, Compose, or release file" >&2; exit 66; }
+[[ "$(stat -c '%a' "$ENV_FILE")" == 600 ]] || { echo "Airflow .env must have mode 600" >&2; exit 77; }
+for key in AIRFLOW_POSTGRES_DB AIRFLOW_POSTGRES_USER AIRFLOW_POSTGRES_PASSWORD AIRFLOW_FERNET_KEY AIRFLOW_API_JWT_SECRET AIRFLOW_API_SECRET_KEY QBO_GATEWAY_BASE_URL QBO_GATEWAY_API_KEY AUTOMATION_GATEWAY_API_KEY NOTIFICATION_LEDGER_URL NOTIFICATION_ROUTER_API_KEY QBO_DISCONNECT_SLACK_DESTINATION_ID; do
+  grep -Eq "^$key=.+$" "$ENV_FILE" || { echo "Missing $key" >&2; exit 78; }
+done
+grep -Eq '^AUTOMATION_GATEWAY_BASE_URL=http://automation-gateway-v2:8000$' "$ENV_FILE" || { echo "Airflow must target Gateway v2" >&2; exit 78; }
 
 exec 9>"$LOCK_FILE"
-flock -n 9 || { echo "Another deployment is already running" >&2; exit 75; }
-
-test -f "$COMPOSE_FILE" || { echo "Missing $COMPOSE_FILE" >&2; exit 66; }
-test -f "$ENV_FILE" || { echo "Missing $ENV_FILE" >&2; exit 66; }
-
-required_variables=(
-  AIRFLOW_POSTGRES_DB AIRFLOW_POSTGRES_USER AIRFLOW_POSTGRES_PASSWORD
-  AIRFLOW_FERNET_KEY AIRFLOW_API_JWT_SECRET AIRFLOW_API_SECRET_KEY
-  QBO_GATEWAY_BASE_URL QBO_GATEWAY_API_KEY
-  AUTOMATION_GATEWAY_BASE_URL AUTOMATION_GATEWAY_API_KEY
-)
-for variable in "${required_variables[@]}"; do
-  grep -Eq "^${variable}=.+$" "$ENV_FILE" || {
-    echo "Missing required value: $variable" >&2
-    exit 78
-  }
-done
-
-previous_image=""
-if [[ -f "$RELEASE_FILE" ]]; then
-  previous_image="$(sed -n 's/^AIRFLOW_IMAGE=//p' "$RELEASE_FILE")"
-fi
-
+flock -n 9 || { echo "Another Airflow deployment is running" >&2; exit 75; }
+cd "$APP_DIR"
+readonly target_image="$IMAGE_REPO:$1"
+previous_image="$(sed -n 's/^AIRFLOW_IMAGE=//p' "$RELEASE_FILE" | head -n 1)"
+[[ "$previous_image" =~ ^ghcr\.io/jorgeaveraf/qbo-connectivity-airflow:[0-9a-f]{40}$ ]] || { echo "Invalid previous Airflow release" >&2; exit 78; }
+candidate_compose="$(mktemp "$APP_DIR/.compose.candidate.XXXXXX")"
+candidate_release="$(mktemp "$APP_DIR/.release.candidate.XXXXXX")"
+backup_compose="$(mktemp "$APP_DIR/.compose.previous.XXXXXX")"
+cp "$COMPOSE_FILE" "$backup_compose"
+chmod 600 "$candidate_release"
+printf 'AIRFLOW_IMAGE=%s\n' "$target_image" > "$candidate_release"
 compose() {
-  AIRFLOW_IMAGE="$1" docker compose \
-    --env-file "$ENV_FILE" \
-    --file "$COMPOSE_FILE" \
-    "${@:2}"
+  docker compose --project-directory "$APP_DIR" --env-file "$ENV_FILE" --env-file "$1" --file "$COMPOSE_FILE" "${@:2}"
 }
-
-start_release() {
-  local image="$1"
-  compose "$image" up -d postgres
-  compose "$image" run --rm airflow-permissions
-  compose "$image" run --rm airflow-init
-  compose "$image" up -d --no-deps --remove-orphans \
-    airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer
-}
-
 wait_for_health() {
-  for _ in $(seq 1 30); do
-    if curl --fail --silent --show-error \
-      http://127.0.0.1:8080/airflow/api/v2/monitor/health >/dev/null; then
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    if curl --fail --silent --max-time 3 http://127.0.0.1:8080/airflow/api/v2/monitor/health >/dev/null &&
+      [[ "$(compose "$1" ps --status running --services | grep -Ec '^airflow-(api-server|scheduler|dag-processor|triggerer)$')" == 4 ]]; then
       return 0
     fi
-    sleep 2
+    sleep 3
   done
   return 1
 }
-
 rollback() {
-  echo "Candidate failed health validation" >&2
-  if [[ -n "$previous_image" ]]; then
-    echo "Restoring previous application image" >&2
-    start_release "$previous_image"
-    wait_for_health || echo "Rollback health validation failed" >&2
+  echo "Airflow candidate failed; restoring previous image and Compose" >&2
+  cp "$backup_compose" "$COMPOSE_FILE"
+  if [[ "$previous_image" =~ ^ghcr\.io/jorgeaveraf/qbo-connectivity-airflow:[0-9a-f]{40}$ ]]; then
+    if grep -q 'name: automation-gateway_default' "$backup_compose"; then
+      AUTOMATION_GATEWAY_BASE_URL=http://automation-gateway:8000 \
+        compose "$RELEASE_FILE" up -d --no-deps --force-recreate airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer || true
+    else
+      compose "$RELEASE_FILE" up -d --no-deps --force-recreate airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer || true
+    fi
+    wait_for_health "$RELEASE_FILE" || echo "Rollback needs operator attention" >&2
   else
-    compose "$CANDIDATE_IMAGE" down --remove-orphans || true
+    echo "No previous release recorded; preserving Postgres and volumes for operator recovery" >&2
   fi
 }
-trap rollback ERR
+cleanup() { rm -f "$candidate_compose" "$candidate_release" "$backup_compose"; }
+trap cleanup EXIT
 
-echo "Pulling $CANDIDATE_IMAGE"
-docker pull "$CANDIDATE_IMAGE"
-start_release "$CANDIDATE_IMAGE"
-wait_for_health
+# The old Airflow stays on the old network until Gateway v2 is ready.
+[[ "$(docker inspect -f '{{.State.Health.Status}}' automation-gateway-v2 2>/dev/null || true)" == healthy ]] ||
+  { echo "Gateway v2 is not healthy" >&2; exit 69; }
+curl --fail --silent --max-time 3 http://127.0.0.1:8003/health >/dev/null
+docker network inspect automation-gateway-v2_default >/dev/null
 
-printf 'AIRFLOW_IMAGE=%s\n' "$CANDIDATE_IMAGE" > "$RELEASE_FILE.new"
-chmod 600 "$RELEASE_FILE.new"
-mv "$RELEASE_FILE.new" "$RELEASE_FILE"
+docker_config="$(mktemp -d /run/qbo-airflow-docker.XXXXXX)"
+chmod 700 "$docker_config"
+export DOCKER_CONFIG="$docker_config"
+trap 'rm -rf "$docker_config"; cleanup' EXIT
+docker login ghcr.io --username jorgeaveraf --password-stdin >/dev/null
+docker pull "$target_image"
+image_container="$(docker create "$target_image")"
+trap 'docker rm -f "$image_container" >/dev/null 2>&1 || true; rm -rf "$docker_config"; cleanup' EXIT
+docker cp "$image_container:/opt/airflow/deploy/docker-compose.production.yml" "$candidate_compose"
+docker rm "$image_container" >/dev/null
+trap 'rm -rf "$docker_config"; cleanup' EXIT
+grep -Eq 'name: automation-gateway-v2_default' "$candidate_compose" || { echo "Candidate does not target Gateway v2" >&2; exit 78; }
 
-trap - ERR
-echo "QBO Connectivity Airflow deployed successfully"
-echo "image=$CANDIDATE_IMAGE"
-echo "api=http://127.0.0.1:8080"
+# A rollback restores containers/Compose, never an automatically restored database.
+backup_dir="$APP_DIR/backups"
+install -d -m 700 "$backup_dir"
+metadata_backup="$backup_dir/airflow-metadata-$(date -u +%Y%m%dT%H%M%SZ)-$1.dump"
+if ! compose "$RELEASE_FILE" exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$metadata_backup"; then
+  rm -f "$metadata_backup"
+  echo "Metadata backup failed; deployment aborted" >&2
+  exit 70
+fi
+chmod 600 "$metadata_backup"
+[[ -s "$metadata_backup" ]] || { echo "Empty metadata backup" >&2; exit 70; }
+docker run --rm --mount "type=bind,src=$metadata_backup,dst=/backup.dump,readonly" \
+  postgres:17-alpine pg_restore --list /backup.dump >/dev/null ||
+  { echo "Metadata backup verification failed" >&2; exit 70; }
+
+if [[ ! -e "$LEGACY_COMPOSE_FILE" ]]; then
+  install -o root -g root -m 644 "$backup_compose" "$LEGACY_COMPOSE_FILE"
+fi
+if [[ ! -e "$LEGACY_RELEASE_FILE" ]]; then
+  install -o root -g root -m 600 "$RELEASE_FILE" "$LEGACY_RELEASE_FILE"
+fi
+
+cp "$candidate_compose" "$COMPOSE_FILE"
+if ! compose "$candidate_release" config --quiet ||
+   ! compose "$candidate_release" run --rm airflow-permissions ||
+   ! compose "$candidate_release" run --rm airflow-init ||
+   ! compose "$candidate_release" up -d --no-deps --force-recreate airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer ||
+   ! wait_for_health "$candidate_release"; then
+  rollback
+  exit 70
+fi
+mv "$candidate_release" "$RELEASE_FILE"
+echo "Airflow deployed: $target_image"
+echo "metadata_backup=$metadata_backup"

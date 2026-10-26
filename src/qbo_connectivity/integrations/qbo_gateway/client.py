@@ -1,8 +1,16 @@
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 import httpx
 
 from qbo_connectivity.domain.models import ConnectionTarget, Environment
+
+
+@dataclass(frozen=True)
+class StoredConnectionState:
+    is_connected: bool
+    checked_at: datetime | None
 
 
 class QboGatewayClient:
@@ -52,6 +60,27 @@ class QboGatewayClient:
                     )
                 )
         return targets
+
+    def get_connection_state(
+        self, *, client_id: UUID, environment: Environment
+    ) -> StoredConnectionState:
+        response = self._client.get(f"/clients/{client_id}")
+        response.raise_for_status()
+        credentials = response.json().get("credentials")
+        if not isinstance(credentials, list):
+            raise ValueError("QBO Gateway client detail has no credentials list")
+        matches = [c for c in credentials if c.get("environment") == environment]
+        if len(matches) != 1 or not isinstance(matches[0].get("is_connected"), bool):
+            raise ValueError("QBO Gateway has no unique connection state for target")
+        raw_checked_at = matches[0].get("connection_checked_at")
+        checked_at = (
+            datetime.fromisoformat(raw_checked_at.replace("Z", "+00:00"))
+            if raw_checked_at
+            else None
+        )
+        if checked_at is not None and (checked_at.tzinfo is None or checked_at.utcoffset() is None):
+            raise ValueError("QBO Gateway connection_checked_at must have a timezone")
+        return StoredConnectionState(is_connected=matches[0]["is_connected"], checked_at=checked_at)
 
     def check_company_info(
         self,

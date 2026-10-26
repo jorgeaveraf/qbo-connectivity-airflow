@@ -49,11 +49,14 @@ def test_qbo_client_classifies_companyinfo_200_as_connected() -> None:
         timeout_seconds=1,
         transport=httpx.MockTransport(handler),
     ) as client:
-        assert client.check_company_info(
-            client_id=CLIENT_ID,
-            environment="prod",
-            correlation_id=UUID("7ac383c5-7d11-488f-8ba8-11bd2c02023d"),
-        ) is True
+        assert (
+            client.check_company_info(
+                client_id=CLIENT_ID,
+                environment="prod",
+                correlation_id=UUID("7ac383c5-7d11-488f-8ba8-11bd2c02023d"),
+            )
+            is True
+        )
 
 
 @pytest.mark.parametrize(
@@ -84,7 +87,7 @@ def test_automation_client_publishes_boolean_payload() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["request"] = request
-        return httpx.Response(200, json={})
+        return httpx.Response(202, json={"accepted": True})
 
     update = ConnectionStatusUpdate(
         client_id=CLIENT_ID,
@@ -102,7 +105,9 @@ def test_automation_client_publishes_boolean_payload() -> None:
         client.publish_connection_status(update)
 
     request = captured["request"]
-    assert request.url.path == f"/v1/connections/{CLIENT_ID}/status"
+    assert request.url.path == "/v1/jobs"
+    assert request.method == "POST"
+    assert b'"kind":"qbo.connection_checked.v1"' in request.content
     assert b'"is_connected":true' in request.content
 
 
