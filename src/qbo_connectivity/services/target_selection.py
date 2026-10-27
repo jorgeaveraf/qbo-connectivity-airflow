@@ -29,3 +29,19 @@ def select_active_target(
     if requested not in targets:
         raise ValueError("Requested client/environment is not an active QBO target")
     return [requested.to_dict()]
+
+
+def select_targets_for_run(
+    targets: list[ConnectionTarget], *, run_type: str, conf: Mapping[str, object] | None
+) -> list[dict[str, str]]:
+    if run_type == "manual":
+        return select_active_target(targets, require_manual_target(conf))
+    if run_type != "scheduled":
+        raise ValueError(f"Unsupported DAG run type: {run_type}")
+    if conf:
+        raise ValueError("Scheduled runs cannot specify a manual target")
+
+    selected = sorted(set(targets), key=lambda target: (str(target.client_id), target.environment))
+    if not selected:
+        raise ValueError("No active QBO connection targets available for scheduled run")
+    return [target.to_dict() for target in selected]
