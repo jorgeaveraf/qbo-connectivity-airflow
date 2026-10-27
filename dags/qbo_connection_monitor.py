@@ -23,13 +23,12 @@ from qbo_connectivity.settings import ServiceSettings
     default_args={"retries": 0},
     max_active_runs=1,
     max_active_tasks=2,
-    description="Check active QBO connections weekly or one selected connection manually.",
+    description="Check all active QBO connections weekly or on manual trigger.",
 )
 def qbo_connection_monitor():
     @task
     def list_targets() -> list[dict[str, str]]:
         dag_run = get_current_context()["dag_run"]
-        run_type = getattr(dag_run.run_type, "value", dag_run.run_type)
         settings = ServiceSettings.from_environment()
         settings.validate_runtime()
         with QboGatewayClient(
@@ -37,9 +36,7 @@ def qbo_connection_monitor():
             api_key=settings.qbo_gateway_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         ) as qbo_gateway:
-            return select_targets_for_run(
-                qbo_gateway.list_connection_targets(), run_type=run_type, conf=dag_run.conf
-            )
+            return select_targets_for_run(qbo_gateway.list_connection_targets(), conf=dag_run.conf)
 
     @task
     def check_and_publish(target_data: dict[str, str]) -> dict[str, str | bool]:
