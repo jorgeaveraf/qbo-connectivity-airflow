@@ -10,11 +10,11 @@ This repository provides the QBO connectivity monitor:
 - LocalExecutor;
 - dedicated PostgreSQL 17 metadata database;
 - API server, scheduler, DAG processor, and triggerer;
-- a paused connectivity DAG configured for Mondays at 08:00 in `America/Mexico_City`;
+- a connectivity DAG configured for Mondays at 08:00 in `America/Mexico_City`;
 - local unit tests and CI validation;
 - CI-gated production delivery from `main`.
 
-Manual runs still require an explicit `client_id` and `environment` and check only that active connection. Scheduled runs select all active client/environment connections returned by QBO Gateway, including both `prod` and `sandbox`, and check CompanyInfo once per target. The DAG remains paused until a separate production activation. No production credentials are included.
+Manual and scheduled runs both select all active client/environment connections returned by QBO Gateway, including both `prod` and `sandbox`, and check CompanyInfo once per target. Trigger manually without run configuration; targeted test runs need a separate DAG. No production credentials are included.
 
 ## Local startup
 
@@ -27,7 +27,7 @@ docker compose ps
 
 The local Airflow UI/API server is exposed at `http://localhost:8080`. Airflow 3 uses the Simple Auth Manager by default; it is suitable only for local development and must be replaced before deployment.
 
-For the isolated local end-to-end circuit, first start the mock-backed Automation Gateway and worker from `../ingestion-gateway` with `docker compose -f automation_gateway/tests/support/docker-compose.worker.yml up -d --build`. Then start Airflow with `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build`. This override points Airflow only to the local test services on ports `18091` and `18092`, and exposes its UI at `http://localhost:8081` so the FinOps OAuth return can keep port `8080`. Keep the DAG paused and run it manually with the sandbox client ID `477751f2-1142-4283-a3c0-387f8aa45fbd`. This circuit does not exercise the real QBO Gateway or send Slack messages. The FinOps frontend/backend use their separate local QBO Gateway circuit.
+For the isolated local end-to-end circuit, first start the mock-backed Automation Gateway and worker from `../ingestion-gateway` with `docker compose -f automation_gateway/tests/support/docker-compose.worker.yml up -d --build`. Then start Airflow with `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build`. This override points Airflow only to the local test services on ports `18091` and `18092`, and exposes its UI at `http://localhost:8081` so the FinOps OAuth return can keep port `8080`. Keep the DAG paused and trigger it manually without configuration; it will check every target returned by the local mock. This circuit does not exercise the real QBO Gateway or send Slack messages. The FinOps frontend/backend use their separate local QBO Gateway circuit.
 
 To point that local circuit at the same QBO Gateway used by FinOps, add `-f automation_gateway/tests/support/docker-compose.qbo-local.yml` to the worker stack and `-f docker-compose.qbo-local.yml` to the Airflow stack. For both commands, pass `--env-file ../qbo-gateway/.env` so Compose obtains the local `API_KEY` without copying it into either repository. The notification ledger and router remain local mocks. Keep the DAG paused until a deliberate sandbox test: a run against a real entity can update its saved connection status through the worker.
 
@@ -81,7 +81,7 @@ destination. The current configured example is `D0B3LSR4C1Y`.
 
 ## Production boundary
 
-Production deployment uses the files under `deploy/`. The Airflow UI/API remains bound to VPS loopback port `8080`; Nginx exposes it at `https://qbo.headquarters.co/airflow/` with FAB authentication. The monitoring DAG is configured for Mondays at 08:00 in `America/Mexico_City` with `catchup=False`, one active run, and at most two active tasks. It remains paused after deployment until the scheduled-target set and notification effects are reviewed. Application releases use immutable commit-SHA images; a successful push to `main` deploys after CI.
+Production deployment uses the files under `deploy/`. The Airflow UI/API remains bound to VPS loopback port `8080`; Nginx exposes it at `https://qbo.headquarters.co/airflow/` with FAB authentication. The monitoring DAG is configured for Mondays at 08:00 in `America/Mexico_City` with `catchup=False`, one active run, and at most two active tasks. Its pause state must be checked during release verification. Application releases use immutable commit-SHA images; a successful push to `main` deploys after CI.
 
 ## Connectivity rule
 
@@ -104,6 +104,6 @@ can be removed in a later Compose update. Unclassified errors cause no Airflow s
 write by the worker; a confirmed `invalid_grant` can still be stored internally by
 QBO Gateway before Airflow attempts publication.
 
-For a manual run, provide `{"client_id": "<UUID>", "environment": "sandbox"}` (or `prod`) as the DAG run configuration. Missing or extra fields fail the run before any status is published. Scheduled runs reject target overrides and fail visibly if QBO Gateway returns no active targets.
+Trigger manual runs without DAG run configuration. Both manual and scheduled runs reject target overrides and fail visibly if QBO Gateway returns no active targets. Each run checks all active targets; use a separate DAG for any future single-target test workflow.
 
 `tests/support/qbo_mock_app.py` is a local-only CompanyInfo mock used to exercise successful and failed checks without contacting Intuit.
