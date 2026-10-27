@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+import pendulum
 from airflow.sdk import dag, get_current_context, task
 
 from qbo_connectivity.domain.models import ConnectionTarget
@@ -10,24 +10,26 @@ from qbo_connectivity.integrations.automation_gateway.client import AutomationGa
 from qbo_connectivity.integrations.notification_ledger import NotificationLedgerClient
 from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
 from qbo_connectivity.services.monitor_connection import monitor_connection
-from qbo_connectivity.services.target_selection import require_manual_target, select_active_target
+from qbo_connectivity.services.target_selection import select_targets_for_run
 from qbo_connectivity.settings import ServiceSettings
 
 
 @dag(
     dag_id="qbo_connection_monitor",
-    schedule=None,
-    start_date=datetime(2026, 1, 1),
+    schedule="0 8 * * 1",
+    start_date=pendulum.datetime(2026, 10, 27, tz="America/Mexico_City"),
     catchup=False,
     tags=["qbo", "connectivity"],
     default_args={"retries": 0},
     max_active_runs=1,
-    description="Check one selected QBO connection and publish a successful check.",
+    max_active_tasks=2,
+    description="Check active QBO connections weekly or one selected connection manually.",
 )
 def qbo_connection_monitor():
     @task
     def list_targets() -> list[dict[str, str]]:
-        requested = require_manual_target(get_current_context()["dag_run"].conf)
+        dag_run = get_current_context()["dag_run"]
+        run_type = getattr(dag_run.run_type, "value", dag_run.run_type)
         settings = ServiceSettings.from_environment()
         settings.validate_runtime()
         with QboGatewayClient(
@@ -35,7 +37,9 @@ def qbo_connection_monitor():
             api_key=settings.qbo_gateway_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         ) as qbo_gateway:
-            return select_active_target(qbo_gateway.list_connection_targets(), requested)
+            return select_targets_for_run(
+                qbo_gateway.list_connection_targets(), run_type=run_type, conf=dag_run.conf
+            )
 
     @task
     def check_and_publish(target_data: dict[str, str]) -> dict[str, str | bool]:
