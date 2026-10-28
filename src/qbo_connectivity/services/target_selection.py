@@ -12,6 +12,4 @@ def select_targets_for_run(
         )
 
     selected = sorted(set(targets), key=lambda target: (str(target.client_id), target.environment))
-    if not selected:
-        raise ValueError("No active QBO connection targets available")
     return [target.to_dict() for target in selected]

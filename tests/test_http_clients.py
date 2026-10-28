@@ -7,7 +7,7 @@ import pytest
 
 from qbo_connectivity.domain.models import ConnectionStatusUpdate
 from qbo_connectivity.integrations.automation_gateway.client import AutomationGatewayClient
-from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
+from qbo_connectivity.integrations.qbo_gateway.client import InactiveClientError, QboGatewayClient
 
 CLIENT_ID = UUID("070b2e37-aa28-4911-b2b2-e493678d38f5")
 
@@ -35,6 +35,64 @@ def test_qbo_client_builds_targets_from_active_client_environments() -> None:
         targets = client.list_connection_targets()
 
     assert [target.environment for target in targets] == ["prod", "sandbox"]
+
+
+def test_inactive_client_is_excluded_from_both_environments() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/clients"
+        return httpx.Response(
+            200,
+            json=[{
+                "id": str(CLIENT_ID),
+                "status": "inactive",
+                "environments": ["prod", "sandbox"],
+            }],
+        )
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.list_connection_targets() == []
+
+
+@pytest.mark.parametrize("status,expected", [("active", True), ("inactive", False)])
+def test_qbo_client_reads_current_entity_status(status: str, expected: bool) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/clients/{CLIENT_ID}":
+            return httpx.Response(200, json={"status": status})
+        return httpx.Response(404)
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.is_active(client_id=CLIENT_ID) is expected
+
+
+def test_deactivation_during_company_info_is_not_classified_as_disconnection() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/qbo/{CLIENT_ID}/companyinfo":
+            return httpx.Response(403, json={"detail": "Client is inactive"})
+        assert request.url.path == f"/clients/{CLIENT_ID}"
+        return httpx.Response(200, json={"status": "inactive"})
+
+    with QboGatewayClient(
+        base_url="http://qbo.local",
+        api_key="local-key",
+        timeout_seconds=1,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(InactiveClientError):
+            client.check_company_info(
+                client_id=CLIENT_ID,
+                environment="prod",
+                correlation_id=UUID("7ac383c5-7d11-488f-8ba8-11bd2c02023d"),
+            )
 
 
 def test_qbo_client_classifies_companyinfo_200_as_connected() -> None:

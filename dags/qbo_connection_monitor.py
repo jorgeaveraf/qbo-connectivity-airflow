@@ -3,12 +3,13 @@ from __future__ import annotations
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pendulum
+from airflow.exceptions import AirflowSkipException
 from airflow.sdk import dag, get_current_context, task
 
 from qbo_connectivity.domain.models import ConnectionTarget
 from qbo_connectivity.integrations.automation_gateway.client import AutomationGatewayClient
 from qbo_connectivity.integrations.notification_ledger import NotificationLedgerClient
-from qbo_connectivity.integrations.qbo_gateway.client import QboGatewayClient
+from qbo_connectivity.integrations.qbo_gateway.client import InactiveClientError, QboGatewayClient
 from qbo_connectivity.services.monitor_connection import monitor_connection
 from qbo_connectivity.services.target_selection import select_targets_for_run
 from qbo_connectivity.settings import ServiceSettings
@@ -68,14 +69,19 @@ def qbo_connection_monitor():
                 timeout_seconds=settings.request_timeout_seconds,
             ) as notification_ledger,
         ):
-            update = monitor_connection(
-                target=target,
-                qbo_gateway=qbo_gateway,
-                automation_gateway=automation_gateway,
-                notification_ledger=notification_ledger,
-                notification_recipient=settings.notification_slack_destination_id,
-                event_id=event_id,
-            )
+            if not qbo_gateway.is_active(client_id=target.client_id):
+                raise AirflowSkipException("Entity was deactivated after target selection")
+            try:
+                update = monitor_connection(
+                    target=target,
+                    qbo_gateway=qbo_gateway,
+                    automation_gateway=automation_gateway,
+                    notification_ledger=notification_ledger,
+                    notification_recipient=settings.notification_slack_destination_id,
+                    event_id=event_id,
+                )
+            except InactiveClientError as exc:
+                raise AirflowSkipException(str(exc)) from exc
         return {
             "client_id": str(update.client_id),
             "environment": update.environment,

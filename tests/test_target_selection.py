@@ -43,6 +43,5 @@ def test_run_rejects_target_overrides(conf: dict[str, object]) -> None:
 
 
 @pytest.mark.parametrize("conf", [None, {}])
-def test_run_fails_when_no_active_targets(conf: dict[str, object] | None) -> None:
-    with pytest.raises(ValueError, match="No active QBO connection targets"):
-        select_targets_for_run([], conf=conf)
+def test_run_has_no_tasks_when_no_active_targets(conf: dict[str, object] | None) -> None:
+    assert select_targets_for_run([], conf=conf) == []
