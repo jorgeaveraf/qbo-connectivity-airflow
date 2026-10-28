@@ -13,6 +13,10 @@ class StoredConnectionState:
     checked_at: datetime | None
 
 
+class InactiveClientError(RuntimeError):
+    """The entity was deactivated after this DAG run selected its targets."""
+
+
 class QboGatewayClient:
     def __init__(
         self,
@@ -61,6 +65,14 @@ class QboGatewayClient:
                 )
         return targets
 
+    def is_active(self, *, client_id: UUID) -> bool:
+        response = self._client.get(f"/clients/{client_id}")
+        response.raise_for_status()
+        status = response.json().get("status")
+        if status not in {"active", "inactive"}:
+            raise ValueError("QBO Gateway client detail has no valid status")
+        return status == "active"
+
     def get_connection_state(
         self, *, client_id: UUID, environment: Environment
     ) -> StoredConnectionState:
@@ -96,6 +108,9 @@ class QboGatewayClient:
         )
         if response.status_code == 200:
             return True
+
+        if response.status_code == 403 and not self.is_active(client_id=client_id):
+            raise InactiveClientError("Entity was deactivated during its connection check")
 
         if response.status_code == 401:
             try:
