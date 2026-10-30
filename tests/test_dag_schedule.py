@@ -1,10 +1,10 @@
-"""Guard the deliberate weekly production schedule without importing Airflow locally."""
+"""Guard the 15-day production schedule without importing Airflow locally."""
 
 import ast
 from pathlib import Path
 
 
-def test_weekly_schedule_and_activation_limits() -> None:
+def test_fifteen_day_schedule_and_activation_limits() -> None:
     source = Path(__file__).resolve().parents[1] / "dags" / "qbo_connection_monitor.py"
     module = ast.parse(source.read_text(encoding="utf-8"))
     function = next(
@@ -21,7 +21,14 @@ def test_weekly_schedule_and_activation_limits() -> None:
     )
     options = {keyword.arg: keyword.value for keyword in decorator.keywords}
 
-    assert ast.literal_eval(options["schedule"]) == "0 8 * * 1"
+    schedule = options["schedule"]
+    assert isinstance(schedule, ast.Call)
+    assert isinstance(schedule.func, ast.Name)
+    assert schedule.func.id == "timedelta"
+    assert schedule.args == []
+    assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in schedule.keywords} == {
+        "days": 15
+    }
     assert ast.literal_eval(options["catchup"]) is False
     assert ast.literal_eval(options["max_active_runs"]) == 1
     assert ast.literal_eval(options["max_active_tasks"]) == 2
@@ -31,7 +38,7 @@ def test_weekly_schedule_and_activation_limits() -> None:
     assert isinstance(start_date.func, ast.Attribute)
     assert isinstance(start_date.func.value, ast.Name)
     assert (start_date.func.value.id, start_date.func.attr) == ("pendulum", "datetime")
-    assert [ast.literal_eval(arg) for arg in start_date.args] == [2026, 10, 27]
+    assert [ast.literal_eval(arg) for arg in start_date.args] == [2026, 10, 27, 8]
     assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in start_date.keywords} == {
         "tz": "America/Mexico_City"
     }
