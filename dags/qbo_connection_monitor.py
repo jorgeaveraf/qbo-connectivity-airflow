@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pendulum
@@ -17,14 +18,14 @@ from qbo_connectivity.settings import ServiceSettings
 
 @dag(
     dag_id="qbo_connection_monitor",
-    schedule="0 8 * * 1",
-    start_date=pendulum.datetime(2026, 10, 27, tz="America/Mexico_City"),
+    schedule=timedelta(days=15),
+    start_date=pendulum.datetime(2026, 10, 27, 8, tz="America/Mexico_City"),
     catchup=False,
     tags=["qbo", "connectivity"],
     default_args={"retries": 0},
     max_active_runs=1,
     max_active_tasks=2,
-    description="Check all active QBO connections weekly or on manual trigger.",
+    description="Check all active QBO connections every 15 days or on manual trigger.",
 )
 def qbo_connection_monitor():
     @task
