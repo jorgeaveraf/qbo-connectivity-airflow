@@ -10,7 +10,7 @@ This repository provides the QBO connectivity monitor:
 - LocalExecutor;
 - dedicated PostgreSQL 17 metadata database;
 - API server, scheduler, DAG processor, and triggerer;
-- a connectivity DAG configured for Mondays at 08:00 in `America/Mexico_City`;
+- a connectivity DAG configured every 15 days at 08:00 in `America/Mexico_City`, anchored to October 27, 2026;
 - local unit tests and CI validation;
 - CI-gated production delivery from `main`.
 
@@ -81,7 +81,7 @@ destination. The current configured example is `D0B3LSR4C1Y`.
 
 ## Production boundary
 
-Production deployment uses the files under `deploy/`. The Airflow UI/API remains bound to VPS loopback port `8080`; Nginx exposes it at `https://qbo.headquarters.co/airflow/` with FAB authentication. The monitoring DAG is configured for Mondays at 08:00 in `America/Mexico_City` with `catchup=False`, one active run, and at most two active tasks. Its pause state must be checked during release verification. Application releases use immutable commit-SHA images; a successful push to `main` deploys after CI.
+Production deployment uses the files under `deploy/`. The Airflow UI/API remains bound to VPS loopback port `8080`; Nginx exposes it at `https://qbo.headquarters.co/airflow/` with FAB authentication. The monitoring DAG runs every 15 days at 08:00 in `America/Mexico_City`, anchored to October 27, 2026, with `catchup=False`, one active run, and at most two active tasks. The first scheduled run is November 11, 2026. Its pause state and next scheduled run must be checked during release verification. Application releases use immutable commit-SHA images; a successful push to `main` deploys after CI.
 
 ## Connectivity rule
 
