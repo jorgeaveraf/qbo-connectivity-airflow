@@ -8,4 +8,5 @@ __pycache__/
 htmlcov/
 logs/
 config/
-plugins/
+plugins/*
+!plugins/qbo_timetable.py
