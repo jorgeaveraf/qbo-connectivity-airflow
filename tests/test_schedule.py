@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+import pendulum
 import pytest
 
 from qbo_connectivity.schedule import next_anchored_run
@@ -25,3 +26,9 @@ def test_next_anchored_run(current: datetime, expected: datetime) -> None:
 def test_next_anchored_run_requires_timezone() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         next_anchored_run(datetime(2026, 10, 30, 12))
+
+
+def test_next_anchored_run_accepts_pendulum_datetime() -> None:
+    assert next_anchored_run(pendulum.datetime(2026, 10, 30, 19, tz="UTC")) == datetime(
+        2026, 11, 11, 14, tzinfo=UTC
+    )

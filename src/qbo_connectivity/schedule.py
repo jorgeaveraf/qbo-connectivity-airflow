@@ -12,7 +12,7 @@ def next_anchored_run(at_or_after: datetime) -> datetime:
     if at_or_after.tzinfo is None:
         raise ValueError("A timezone-aware datetime is required")
     anchor_utc = ANCHOR.astimezone(UTC)
-    moment_utc = at_or_after.astimezone(UTC)
+    moment_utc = datetime.fromtimestamp(at_or_after.timestamp(), UTC)
     if moment_utc <= anchor_utc:
         return anchor_utc
     elapsed = moment_utc - anchor_utc
