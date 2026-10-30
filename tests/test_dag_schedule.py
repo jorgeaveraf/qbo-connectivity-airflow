@@ -24,11 +24,9 @@ def test_fifteen_day_schedule_and_activation_limits() -> None:
     schedule = options["schedule"]
     assert isinstance(schedule, ast.Call)
     assert isinstance(schedule.func, ast.Name)
-    assert schedule.func.id == "timedelta"
+    assert schedule.func.id == "FifteenDayTimetable"
     assert schedule.args == []
-    assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in schedule.keywords} == {
-        "days": 15
-    }
+    assert schedule.keywords == []
     assert ast.literal_eval(options["catchup"]) is False
     assert ast.literal_eval(options["max_active_runs"]) == 1
     assert ast.literal_eval(options["max_active_tasks"]) == 2

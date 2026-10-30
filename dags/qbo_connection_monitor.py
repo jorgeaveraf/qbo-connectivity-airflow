@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pendulum
@@ -14,11 +13,12 @@ from qbo_connectivity.integrations.qbo_gateway.client import InactiveClientError
 from qbo_connectivity.services.monitor_connection import monitor_connection
 from qbo_connectivity.services.target_selection import select_targets_for_run
 from qbo_connectivity.settings import ServiceSettings
+from qbo_connectivity.timetable import FifteenDayTimetable
 
 
 @dag(
     dag_id="qbo_connection_monitor",
-    schedule=timedelta(days=15),
+    schedule=FifteenDayTimetable(),
     start_date=pendulum.datetime(2026, 10, 27, 8, tz="America/Mexico_City"),
     catchup=False,
     tags=["qbo", "connectivity"],
